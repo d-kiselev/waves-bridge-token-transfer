@@ -1,0 +1,139 @@
+{-# STDLIB_VERSION 3 #-}
+{-# CONTENT_TYPE DAPP #-}
+{-# SCRIPT_TYPE ACCOUNT #-}
+
+let tokenPortInOtherChain = match(getBinary(this, "tokenPortInOtherChain")) {
+    case b: ByteVector => b
+    case _ => throw("tokenPortInOtherChain is not defined")
+}
+
+let chainCollector = match(getBinary(this, "chainCollector")) {
+    case b: ByteVector => Address(b)
+    case _ => throw("chainCollector is not defined")
+}
+
+func blockInfoAt(height: Int) = {
+    match(getBinary(chainCollector, toString(height))) {
+        case b: ByteVector => b
+        case _ => throw("Block info not found")
+    }
+}
+
+func assetIdToString(assetId: ByteVector|Unit) = {
+    match(assetId) {
+        case assetId: ByteVector => assetId.toBase58String()
+        case _ =>  "WAVES"
+    }
+}
+
+func assetIdFromString(asset: String) = {
+    if (asset == "WAVES")
+    then unit
+    else asset.fromBase58String()
+}
+
+# 1         # Type
+# 1         # Version
+# 32        # SenderPublicKey
+# 1+(0|32)  # Asset
+# 1+(0|32)  # FeeAsset
+# 8         # Timestamp
+# 8         # Amount
+# 8         # Fee
+# 32        # Recipient
+# 2         # AttachmentLength = L
+# L         # Attachment
+
+func extractTxAsset(txBodyBytes : ByteVector) = {
+    let assetByte = txBodyBytes.take(1+1+32+1).takeRight(1).toInt()
+
+    if (assetByte == 0)
+    then unit
+    else txBodyBytes.take(1+1+32+1+32).takeRight(32)
+}
+
+func extractTxId(txBodyBytes : ByteVector) = {
+    blake2b256(txBodyBytes)
+}
+
+func extractTxRecipient(txBodyBytes: ByteVector) = {
+    let assetByte = txBodyBytes.take(1+1+32+1).takeRight(1).toInt()
+    let assetIdLenght = if (assetByte == 0) then 0 else 32
+    let feeAssetByte = txBodyBytes.take(1+1+32+1+assetIdLenght+1).takeRight(1).toInt()
+    let feeAssetIdLenght = if (feeAssetByte == 0) then 0 else 32
+    
+    # recipient
+    txBodyBytes.take(1+1+32+1+assetIdLenght+1+feeAssetIdLenght+8+8+8+32)
+    .takeRight(32)
+}
+
+func extractTxAmount(txBodyBytes: ByteVector) = {
+    let assetByte = txBodyBytes.take(1+1+32+1).takeRight(1).toInt()
+    let assetIdLenght = if (assetByte == 0) then 0 else 32
+    let feeAssetByte = txBodyBytes.take(1+1+32+1+assetIdLenght+1).takeRight(1).toInt()
+    let feeAssetIdLenght = if (feeAssetByte == 0) then 0 else 32
+
+    # amount
+    txBodyBytes.take(1+1+32+1+assetIdLenght+1+feeAssetIdLenght+8+8)
+    .takeRight(8).toInt()
+}
+
+func extractTxAttachment(txBodyBytes: ByteVector) = {
+    let assetByte = txBodyBytes.take(1+1+32+1).takeRight(1).toInt()
+    let assetIdLenght = if (assetByte == 0) then 0 else 32
+    let feeAssetByte = txBodyBytes.take(1+1+32+1+assetIdLenght+1).takeRight(1).toInt()
+    let feeAssetIdLenght = if (feeAssetByte == 0) then 0 else 32
+    let attachmentLength = txBodyBytes.take(1+1+32+1+assetIdLenght+1+feeAssetIdLenght+8+8+8+32+2).takeRight(2).toInt()
+
+    # attachment
+    txBodyBytes.take(1+1+32+1+assetIdLenght+1+feeAssetIdLenght+8+8+8+32+2+attachmentLength)
+    .takeRight(attachmentLength)
+}
+
+func extractTxType(txBodyBytes: ByteVector) = {
+    txBodyBytes.take(1).toInt()
+}
+
+
+@Callable(i)
+func withdraw(txBytes: ByteVector, blockHeight: Int, merkleProof: ByteVector) = {
+    let merkleRoot = blockInfoAt(blockHeight)
+    let txId = extractTxId(txBytes)
+    let txRecipient = extractTxRecipient(txBytes)
+    let txAttachment = extractTxAttachment(txBytes)
+    let txAmount = extractTxAmount(txBytes)
+    let txAsset = extractTxAsset(txBytes)
+    let txType = extractTxType(txBytes)
+
+    let txIdKey = txId.toBase58String() + "_tx"
+    let assetKey = assetIdToString(txAsset) + "_asset"
+    let assetInThisChain = match(getString(this, assetKey)) {
+        case s: String => s.assetIdFromString()
+        case _ => throw("incorrect asset")
+    }
+    
+    if (txType != 4)
+    then throw("incorrect transaction type") else
+
+    if (txRecipient != tokenPortInOtherChain)
+    then throw("incorrect tx recipient") else
+
+    let recipient = Address(txAttachment)
+
+    # prohibit double spending
+    if (isDefined(getBoolean(this, txIdKey)))
+    then throw("this tx has already been withdrawn") else
+  
+    if (!checkMerkleProof(merkleRoot, txId, merkleProof))
+    then throw("incorrect Merkle proof") else
+    
+    ScriptResult(
+        WriteSet([DataEntry(txIdKey, true)]),
+        TransferSet([ScriptTransfer(recipient, txAmount, assetInThisChain)])
+    )
+}
+
+@Verifier(tx)
+func verify() = {
+    sigVerify(tx.bodyBytes, tx.proofs[0], tx.senderPublicKey)
+}
