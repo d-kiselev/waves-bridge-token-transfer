@@ -73,7 +73,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
-    <None Include="Resources\TokenPort.ride" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Resources\TokenPort.ride" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
 </Project>
