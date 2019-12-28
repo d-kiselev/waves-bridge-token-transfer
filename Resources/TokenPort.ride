@@ -40,14 +40,14 @@ func assetIdFromString(asset: String) = {
 # 8         # Timestamp
 # 8         # Amount
 # 8         # Fee
-# 32        # Recipient
+# 26        # Recipient
 # 2         # AttachmentLength = L
 # L         # Attachment
 
 func extractTxAsset(txBodyBytes : ByteVector) = {
-    let assetByte = txBodyBytes.take(1+1+32+1).takeRight(1).toInt()
+    let assetByte = txBodyBytes.take(1+1+32+1).takeRight(1)
 
-    if (assetByte == 0)
+    if (assetByte == base58'1')
     then unit
     else txBodyBytes.take(1+1+32+1+32).takeRight(32)
 }
@@ -57,21 +57,21 @@ func extractTxId(txBodyBytes : ByteVector) = {
 }
 
 func extractTxRecipient(txBodyBytes: ByteVector) = {
-    let assetByte = txBodyBytes.take(1+1+32+1).takeRight(1).toInt()
-    let assetIdLenght = if (assetByte == 0) then 0 else 32
-    let feeAssetByte = txBodyBytes.take(1+1+32+1+assetIdLenght+1).takeRight(1).toInt()
-    let feeAssetIdLenght = if (feeAssetByte == 0) then 0 else 32
+    let assetByte = txBodyBytes.take(1+1+32+1).takeRight(1)
+    let assetIdLenght = if (assetByte == base58'1') then 0 else 32
+    let feeAssetByte = txBodyBytes.take(1+1+32+1+assetIdLenght+1).takeRight(1)
+    let feeAssetIdLenght = if (feeAssetByte == base58'1') then 0 else 32
     
     # recipient
-    txBodyBytes.take(1+1+32+1+assetIdLenght+1+feeAssetIdLenght+8+8+8+32)
-    .takeRight(32)
+    txBodyBytes.take(1+1+32+1+assetIdLenght+1+feeAssetIdLenght+8+8+8+26)
+    .takeRight(26)
 }
 
 func extractTxAmount(txBodyBytes: ByteVector) = {
-    let assetByte = txBodyBytes.take(1+1+32+1).takeRight(1).toInt()
-    let assetIdLenght = if (assetByte == 0) then 0 else 32
-    let feeAssetByte = txBodyBytes.take(1+1+32+1+assetIdLenght+1).takeRight(1).toInt()
-    let feeAssetIdLenght = if (feeAssetByte == 0) then 0 else 32
+    let assetByte = txBodyBytes.take(1+1+32+1).takeRight(1)
+    let assetIdLenght = if (assetByte == base58'1') then 0 else 32
+    let feeAssetByte = txBodyBytes.take(1+1+32+1+assetIdLenght+1).takeRight(1)
+    let feeAssetIdLenght = if (feeAssetByte == base58'1') then 0 else 32
 
     # amount
     txBodyBytes.take(1+1+32+1+assetIdLenght+1+feeAssetIdLenght+8+8)
@@ -79,19 +79,19 @@ func extractTxAmount(txBodyBytes: ByteVector) = {
 }
 
 func extractTxAttachment(txBodyBytes: ByteVector) = {
-    let assetByte = txBodyBytes.take(1+1+32+1).takeRight(1).toInt()
-    let assetIdLenght = if (assetByte == 0) then 0 else 32
-    let feeAssetByte = txBodyBytes.take(1+1+32+1+assetIdLenght+1).takeRight(1).toInt()
-    let feeAssetIdLenght = if (feeAssetByte == 0) then 0 else 32
-    let attachmentLength = txBodyBytes.take(1+1+32+1+assetIdLenght+1+feeAssetIdLenght+8+8+8+32+2).takeRight(2).toInt()
+    let assetByte = txBodyBytes.take(1+1+32+1).takeRight(1)
+    let assetIdLenght = if (assetByte == base58'1') then 0 else 32
+    let feeAssetByte = txBodyBytes.take(1+1+32+1+assetIdLenght+1).takeRight(1)
+    let feeAssetIdLenght = if (feeAssetByte == base58'1') then 0 else 32
+    let attachmentLength = txBodyBytes.take(1+1+32+1+assetIdLenght+1+feeAssetIdLenght+8+8+8+26+2).takeRight(2).toInt()
 
     # attachment
-    txBodyBytes.take(1+1+32+1+assetIdLenght+1+feeAssetIdLenght+8+8+8+32+2+attachmentLength)
+    txBodyBytes.take(1+1+32+1+assetIdLenght+1+feeAssetIdLenght+8+8+8+26+2+attachmentLength)
     .takeRight(attachmentLength)
 }
 
 func extractTxType(txBodyBytes: ByteVector) = {
-    txBodyBytes.take(1).toInt()
+    txBodyBytes.take(1)
 }
 
 
@@ -112,20 +112,20 @@ func withdraw(txBytes: ByteVector, blockHeight: Int, merkleProof: ByteVector) = 
         case _ => throw("incorrect asset")
     }
     
-    if (txType != 4)
+    if (txType != base58'5')
     then throw("incorrect transaction type") else
 
     if (txRecipient != tokenPortInOtherChain)
     then throw("incorrect tx recipient") else
 
     let recipient = Address(txAttachment)
-
+    
     # prohibit double spending
     if (isDefined(getBoolean(this, txIdKey)))
     then throw("this tx has already been withdrawn") else
   
-    # if (!checkMerkleProof(merkleRoot, txId, merkleProof))
-    # then throw("incorrect Merkle proof") else
+    if (!checkMerkleProof(merkleRoot, txId, merkleProof))
+    then throw("incorrect Merkle proof") else
     
     ScriptResult(
         WriteSet([DataEntry(txIdKey, true)]),
