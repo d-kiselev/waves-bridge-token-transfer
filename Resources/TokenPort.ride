@@ -13,7 +13,7 @@ let chainCollector = match(getBinary(this, "chainCollector")) {
 }
 
 func blockInfoAt(height: Int) = {
-    match(getBinary(chainCollector, toString(height))) {
+    match(getBinary(chainCollector, toString(height) + "_transactionsRoot")) {
         case b: ByteVector => b
         case _ => throw("Block info not found")
     }
@@ -123,8 +123,8 @@ func withdraw(txBytes: ByteVector, blockHeight: Int, merkleProof: ByteVector) = 
     # prohibit double spending
     if (isDefined(getBoolean(this, txIdKey)))
     then throw("this tx has already been withdrawn") else
-  
-    if (!checkMerkleProof(merkleRoot, txId, merkleProof))
+
+    if (!checkMerkleProof(merkleRoot, merkleProof, txId))
     then throw("incorrect Merkle proof") else
     
     ScriptResult(
