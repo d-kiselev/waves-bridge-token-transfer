@@ -20,14 +20,6 @@ namespace wavesbridgetokentransfer
         public static string tokenPortTestnet = "3Mz3XPi4hQnfVK9ZaA27YwFfiPApPgFnCts";
         public static string tokenPortStagenet = "3Mgqt4HLefP3bafouR4gXPrP9EgU4pajTct";
 
-        public static long F(Node node, string assetId)
-        {
-            var response = node.GetObject($"transactions/info/{assetId}");
-            var sender = response.GetString("sender");
-            var balance = node.GetObject($"addresses/balance/details/{sender}").GetLong("regular");
-            return balance;
-
-        }
         public static void Main(string[] args)
         {
             // transfer tokens from stagenet to testnet
