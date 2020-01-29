@@ -94,7 +94,7 @@ namespace wavesbridgetokentransfer
                 writer.Write(len);
                 writer.Write(proofs[i]);
 
-                index = (index - 1) / 2;
+                index /= 2;
             }
 
             return stream.ToArray();
