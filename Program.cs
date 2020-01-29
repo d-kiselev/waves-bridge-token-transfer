@@ -6,34 +6,76 @@ using System.Reflection;
 using System.Threading;
 using WavesCS;
 
+using Grpc.Core;
+using Waves;
+using System.Threading.Tasks;
+using Google.Protobuf;
+using Waves.Node.Grpc;
+
 namespace wavesbridgetokentransfer
 {
     class MainClass
     {
+        public static string chainCollectorTestnet = "3N6VvqXLuZ4uxWG6E92orif1KR61bqF6JCk";
+        public static string tokenPortTestnet = "3Mz3XPi4hQnfVK9ZaA27YwFfiPApPgFnCts";
+        public static string tokenPortStagenet = "3Mgqt4HLefP3bafouR4gXPrP9EgU4pajTct";
+
+        public static long F(Node node, string assetId)
+        {
+            var response = node.GetObject($"transactions/info/{assetId}");
+            var sender = response.GetString("sender");
+            var balance = node.GetObject($"addresses/balance/details/{sender}").GetLong("regular");
+            return balance;
+
+        }
         public static void Main(string[] args)
         {
+            var node = new Node("https://stagenet-aws-fr-1.wavesnodes.com/", 'S');
+            var bytes = GetTransactionProtobufBytes("stagenet-aws-fr-1.wavesnodes.com:6870", "5g3zao9BPs8U1t5S1AwcHMEzeU6BR8HCqD5v6mYvuZoY");
+            bytes = "5g3zao9BPs8U1t5S1AwcHMEzeU6BR8HCqD5v6mYvuZoY".FromBase58();
+            Console.WriteLine(BitConverter.ToString(bytes));
+
+
+
+            return;
+            
+
+            var a = "0v5oH+EwGTLfOrueXR54Zuk7WKf1uwwteAs3F5m2NFc=".FromBase64();
+            var b = "fobEl3Ut7eYWuo2/dKj/CRYFtOUC0MXRY8W3xPtsc3c=".FromBase64();
+
+            // a = PrefixedHash(InternalNodePrefix, a);
+            // b = PrefixedHash(InternalNodePrefix, b);
+            
+            var ab = new byte[a.Length + b.Length];
+            a.CopyTo(ab, 0);
+            b.CopyTo(ab, a.Length);
+
+            var cRoot = PrefixedHash(InternalNodePrefix, ab);
+
+            Console.WriteLine(cRoot.ToBase58());
+            return;
+
             // transfer tokens from stagenet to testnet
 
             var testnetNode = new Node(Node.TestNetChainId);
             var stagenetNode = new Node("https://stagenet-aws-fr-1.wavesnodes.com/", 'S');
-
-            var chainCollectorTestnet = "3N6VvqXLuZ4uxWG6E92orif1KR61bqF6JCk";
-            var tokenPortTestnet = "3Mz3XPi4hQnfVK9ZaA27YwFfiPApPgFnCts";
-            var tokenPortStagenet = "3Mgqt4HLefP3bafouR4gXPrP9EgU4pajTct";
 
             var aliceSeed = "whip disagree egg melt satisfy repeat engine envelope federal toward shoulder cattle rare much lava";
             var Alice = PrivateKeyAccount.CreateFromSeed(aliceSeed, stagenetNode.ChainId); // in stagenet
             var Bob = "3MuR872m3WiW1DRBD8CfoLbZpJgo3xzLyy7"; // in testnet
 
             // 0. Set token port script and data
-            // SetTokenPort();
+            // SetTokenPortTestNet();
             // return;
 
             // 1. transfer tokens from Alice to TokenPort (in stagenet)
-            var response = stagenetNode.Transfer(Alice, tokenPortStagenet, Assets.WAVES, 0.00000002m, 0.005m, null, Bob.FromBase58()); // Bob.FromBase58() ???
+            /*
+            var response = stagenetNode.Transfer(Alice, tokenPortStagenet, Assets.WAVES, 0.00000002m, 0.005m, null, Bob.FromBase58());
             Thread.Sleep(10000);
-
             var txId = response.ParseJsonObject().GetString("id");
+            */
+
+            var txId = "5g3zao9BPs8U1t5S1AwcHMEzeU6BR8HCqD5v6mYvuZoY";
             Console.WriteLine($"transfer tx id: {txId}");
 
             var blockHeight = stagenetNode.GetTransactionHeight(txId);
@@ -49,7 +91,13 @@ namespace wavesbridgetokentransfer
             }
 
             // 3. genegare MerkleProof (for transaction in stagenet)
-            var merkleProof = GenerateMerkleProof(stagenetNode, txId);
+            var merkleProof = stagenetNode.GetMerkleProof(txId);
+            Console.WriteLine("Merkle proof: ");
+
+            foreach(var p in merkleProof)
+                Console.WriteLine($"\t{p.ToBase58()}");
+
+            return;
 
             // 4. invoke script of tokenPort (in testnet) --> Bob receives money
             var callerSeed = "whip disagree egg satisfy repeat engine envelope federal toward shoulder cattle rare much lava melt";
@@ -63,105 +111,36 @@ namespace wavesbridgetokentransfer
             // testnetNode.Broadcast(invokeScriptTx);
         }
 
-        public static byte[] GenerateMerkleProof(Node node, string txId)
+        const byte LeafPrefix = 0;
+        const byte InternalNodePrefix = 1;
+
+        const byte LeftSide = 0;
+        const byte RightSide = 1;
+
+        public static byte[] PrefixedHash(byte prefix, byte[] message)
         {
-            var height = node.GetTransactionHeight(txId);
+            var t = new byte[1 + message.Length];
+            t[0] = prefix;
 
-            var txIds = node.GetObject($"blocks/at/{height}")
-                            .GetObjects("transactions")
-                            .Select(tx => tx.GetString("id").FromBase58())
-                            .ToList();
+            if (message.Length > 0)
+                message.CopyTo(t, 1);
 
-            var LeafPrefix = (byte)0;
-            var InternalNodePrefix = (byte)1;
+            return AddressEncoding.FastHash(t, 0, t.Length);
+        }
 
-            var oldSize = txIds.Count;
-
-            var newSize = 1;
-            while (newSize < oldSize)
-            {
-                newSize *= 2;
-            }
-
-            for (int i = 0; i < newSize - oldSize; i++)
-            {
-                txIds.Add(new byte[0]);
-            }
-
-            var tree = Enumerable.Repeat(new byte[0], newSize * 2 - 1).ToList();
-
-            for (int i = 0; i < txIds.Count; i++)
-            {
-                var t = new byte[1 + txIds[i].Length];
-                t[0] = LeafPrefix;
-                if (txIds[i].Length > 0)
-                {
-                    txIds[i].CopyTo(t, 1);
-                }
-                tree[i + newSize - 1] = AddressEncoding.FastHash(t, 0, t.Length);
-            }
-
-            for (int i = newSize - 2; i >= 0; i--)
-            {
-                var a = tree[2 * i + 1];
-                var b = tree[2 * i + 2];
-
-                var t = new byte[1 + a.Length + b.Length];
-                t[0] = InternalNodePrefix;
-                if (a.Length > 0)
-                    a.CopyTo(t, 1);
-
-                if (b.Length > 0)
-                    b.CopyTo(t, 1 + a.Length);
-
-                tree[i] = AddressEncoding.FastHash(t, 0, t.Length);
-            }
-
-            // generate proof
-
-            var val = txId.FromBase58();
-
-            var LeftSide = (byte)0;
-            var RightSide = (byte)1;
-
+        public static byte[] GenerateMerkleProof(int index, List<byte[]> proofs)
+        {
             var stream = new MemoryStream();
             var writer = new BinaryWriter(stream);
 
-            var treeSize = tree.Count;
-            var arrSize = (treeSize + 1) / 2;
-
-
-            var z = new byte[1 + val.Length];
-            z[0] = 0;
-            if (val.Length > 0)
-            {
-                val.CopyTo(z, 1);
-            }
-
-            if (!tree.Skip(arrSize - 1)
-                            .Select(x => x.ToBase58())
-                            .ToList()
-                            .Contains(AddressEncoding.FastHash(z, 0, z.Length).ToBase58()))
-            {
-                throw new Exception("The list doesn't contain this value");
-            }
-
-            var index = tree.Skip(arrSize - 1)
-                                    .Select(x => x.ToBase58())
-                                    .ToList()
-                                    .IndexOf(AddressEncoding.FastHash(z, 0, z.Length).ToBase58());
-
-            index += arrSize - 1;
-
-            while (index != 0)
+            for (var i = 0; i < proofs.Count; i++)
             {
                 var side = (index % 2 == 1) ? LeftSide : RightSide;
-                var proofIndex = (side == LeftSide) ? index + 1 : index - 1;
-                var len = /* !!! */ (byte)tree[proofIndex].Length;
+                var len = (byte)proofs[i].Length;
 
                 writer.Write(side);
                 writer.Write(len);
-                writer.Write(tree[proofIndex]);
+                writer.Write(proofs[i]);
 
                 index = (index - 1) / 2;
             }
@@ -169,7 +148,7 @@ namespace wavesbridgetokentransfer
             return stream.ToArray();
         }
 
-        public static void SetTokenPort()
+        public static void SetTokenPortTestNet()
         {
             var node = new Node(Node.TestNetChainId);
             var chainId = 'T';
@@ -178,8 +157,8 @@ namespace wavesbridgetokentransfer
 
             node.PutData(tokenPort, new Dictionary<string, object>
             {
-                { "tokenPortInOtherChain", "3Mgqt4HLefP3bafouR4gXPrP9EgU4pajTct".FromBase58() },
-                { "chainCollector", "3N6VvqXLuZ4uxWG6E92orif1KR61bqF6JCk".FromBase58()},
+                { "tokenPortInOtherChain", tokenPortStagenet.FromBase58() },
+                { "chainCollector", chainCollectorTestnet.FromBase58()},
                 { "WAVES_asset", "WAVES"}
             }, 0.01m);
 
@@ -193,6 +172,48 @@ namespace wavesbridgetokentransfer
 
             var compiledScript = node.CompileCode(tokenPortScript);
             node.SetScript(tokenPort, compiledScript);
+        }
+
+        public static byte[] GetTransactionProtobufBytes(string target, string id)
+        {
+            Channel channel = new Channel(target, ChannelCredentials.Insecure);
+
+            var client = new TransactionsApi.TransactionsApiClient(channel);
+
+            var request = new TransactionsRequest()
+            {
+                TransactionIds = { ByteString.CopyFrom(id.FromBase58()) }
+            };
+
+            var t = client.GetTransactions(request);
+            var task = Task.Run(async () => { await t.ResponseStream.MoveNext(); });
+            task.Wait();
+
+            return t.ResponseStream.Current.ToByteArray();
+        }
+    }
+
+    static class NodeExtentions
+    {
+        public static decimal GetTransactionHeight(this Node node, string txId)
+        {
+            return node.GetObject($"transactions/info/{txId}").GetLong("height");
+        }
+
+        public static byte[] GetMerkleRoot(this Node node, int height)
+        {
+            return node.GetObject($"blocks/headers/at/{height}").GetString("transactionsRoot").FromBase58();
+        }
+
+        public static byte[][] GetMerkleProof(this Node node, string txId)
+        {
+            var response = node.GetObjects($"transactions/merkleProof?id={txId}")
+                               .First()
+                               .GetValue("merkleProof");
+
+            var proof = (Newtonsoft.Json.Linq.JArray)response;
+
+            return proof.Select(x => x.ToString().FromBase64()).ToArray();
         }
     }
 }
