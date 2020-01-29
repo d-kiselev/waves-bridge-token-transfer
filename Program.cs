@@ -30,31 +30,6 @@ namespace wavesbridgetokentransfer
         }
         public static void Main(string[] args)
         {
-            var node = new Node("https://stagenet-aws-fr-1.wavesnodes.com/", 'S');
-            var bytes = GetTransactionProtobufBytes("stagenet-aws-fr-1.wavesnodes.com:6870", "5g3zao9BPs8U1t5S1AwcHMEzeU6BR8HCqD5v6mYvuZoY");
-            bytes = "5g3zao9BPs8U1t5S1AwcHMEzeU6BR8HCqD5v6mYvuZoY".FromBase58();
-            Console.WriteLine(BitConverter.ToString(bytes));
-
-
-
-            return;
-            
-
-            var a = "0v5oH+EwGTLfOrueXR54Zuk7WKf1uwwteAs3F5m2NFc=".FromBase64();
-            var b = "fobEl3Ut7eYWuo2/dKj/CRYFtOUC0MXRY8W3xPtsc3c=".FromBase64();
-
-            // a = PrefixedHash(InternalNodePrefix, a);
-            // b = PrefixedHash(InternalNodePrefix, b);
-            
-            var ab = new byte[a.Length + b.Length];
-            a.CopyTo(ab, 0);
-            b.CopyTo(ab, a.Length);
-
-            var cRoot = PrefixedHash(InternalNodePrefix, ab);
-
-            Console.WriteLine(cRoot.ToBase58());
-            return;
-
             // transfer tokens from stagenet to testnet
 
             var testnetNode = new Node(Node.TestNetChainId);
@@ -69,8 +44,8 @@ namespace wavesbridgetokentransfer
             // return;
 
             // 1. transfer tokens from Alice to TokenPort (in stagenet)
-            /*
-            var response = stagenetNode.Transfer(Alice, tokenPortStagenet, Assets.WAVES, 0.00000002m, 0.005m, null, Bob.FromBase58());
+            
+            /*var response = stagenetNode.Transfer(Alice, tokenPortStagenet, Assets.WAVES, 0.00000002m, 0.005m, null, Bob.FromBase58());
             Thread.Sleep(10000);
             var txId = response.ParseJsonObject().GetString("id");
             */
@@ -79,7 +54,8 @@ namespace wavesbridgetokentransfer
             Console.WriteLine($"transfer tx id: {txId}");
 
             var blockHeight = stagenetNode.GetTransactionHeight(txId);
-            var txBytes = stagenetNode.GetTransactionById(txId).GetBody();
+            var txBytes = GetTransactionProtobufBytes("stagenet-aws-fr-1.wavesnodes.com:6870", txId);
+
             var key = blockHeight.ToString() + "_transactionsRoot";
 
             // 2. wait for the chain collector to put Merkle root (in testnet)
@@ -96,9 +72,7 @@ namespace wavesbridgetokentransfer
 
             foreach(var p in merkleProof)
                 Console.WriteLine($"\t{p.ToBase58()}");
-
-            return;
-
+            
             // 4. invoke script of tokenPort (in testnet) --> Bob receives money
             var callerSeed = "whip disagree egg satisfy repeat engine envelope federal toward shoulder cattle rare much lava melt";
             var caller = PrivateKeyAccount.CreateFromSeed(callerSeed, testnetNode.ChainId);
@@ -111,22 +85,8 @@ namespace wavesbridgetokentransfer
             // testnetNode.Broadcast(invokeScriptTx);
         }
 
-        const byte LeafPrefix = 0;
-        const byte InternalNodePrefix = 1;
-
         const byte LeftSide = 0;
         const byte RightSide = 1;
-
-        public static byte[] PrefixedHash(byte prefix, byte[] message)
-        {
-            var t = new byte[1 + message.Length];
-            t[0] = prefix;
-
-            if (message.Length > 0)
-                message.CopyTo(t, 1);
-
-            return AddressEncoding.FastHash(t, 0, t.Length);
-        }
 
         public static byte[] GenerateMerkleProof(int index, List<byte[]> proofs)
         {
@@ -205,7 +165,7 @@ namespace wavesbridgetokentransfer
             return node.GetObject($"blocks/headers/at/{height}").GetString("transactionsRoot").FromBase58();
         }
 
-        public static byte[][] GetMerkleProof(this Node node, string txId)
+        public static List<byte[]> GetMerkleProof(this Node node, string txId)
         {
             var response = node.GetObjects($"transactions/merkleProof?id={txId}")
                                .First()
@@ -213,7 +173,7 @@ namespace wavesbridgetokentransfer
 
             var proof = (Newtonsoft.Json.Linq.JArray)response;
 
-            return proof.Select(x => x.ToString().FromBase64()).ToArray();
+            return proof.Select(x => x.ToString().FromBase64()).ToList();
         }
     }
 }
