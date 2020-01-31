@@ -178,13 +178,8 @@ namespace wavesbridgetokentransfer
 
             for (var i = 0; i < proofs.Count; i++)
             {
-                const byte LeftSide = 0;
-                const byte RightSide = 1;
-                var side = (index % 2 == 0) ? LeftSide : RightSide;
-                var len = (byte)proofs[i].Length;
-
-                writer.Write(side);
-                writer.Write(len);
+                writer.Write(index % 2); // side
+                writer.Write((byte)proofs[i].Length);
                 writer.Write(proofs[i]);
 
                 index /= 2;
