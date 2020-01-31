@@ -22,7 +22,7 @@ namespace wavesbridgetokentransfer
         public static string tokenPortQSeed = "seed take purity craft away cake month layer napkin nasty void entire theme slam explain";
         public static string AlicePSeed = "whip disagree egg melt satisfy repeat engine envelope federal toward shoulder cattle rare much lava";
         public static string BobQSeed = "whip disagree egg satisfy repeat engine envelope federal toward shoulder cattle rare much lava melt";
-        
+
         public static PrivateKeyAccount chainCollectorP = PrivateKeyAccount.CreateFromSeed(chainCollectorPSeed, 'P');
         public static PrivateKeyAccount chainCollectorQ = PrivateKeyAccount.CreateFromSeed(chainCollectorQSeed, 'Q');
         public static PrivateKeyAccount tokenPortP = PrivateKeyAccount.CreateFromSeed(tokenPortPSeed, 'P');
@@ -50,16 +50,15 @@ namespace wavesbridgetokentransfer
             nodeQ = new Node("http://127.0.0.1:6869", 'Q');
         }
 
+        // transfer tokens from network "P" to network "Q"
         public static void Main(string[] args)
         {
             Init();
 
-            // transfer tokens from network "P" to network "Q"
+            // 0. set accounts' scripts and data
+            SetTokenPorts(); return;
 
-            // 0. Set token port script and data
-            // SetTokenPorts(); return;
-
-            // 1. transfer tokens from Alice to TokenPort (in stagenet)
+            // 1. transfer tokens from Alice to TokenPort (in network P)
 
             /*var response = nodeP.Transfer(AliceP, tokenPortP.Address, Assets.WAVES, 0.00000002m, 0.005m, null, BobQ.Address.FromBase58());
             Thread.Sleep(10000);
@@ -75,7 +74,7 @@ namespace wavesbridgetokentransfer
 
             var key = blockHeight.ToString() + "_transactionsRoot";
 
-            // 2. wait for the chain collector to put Merkle root (in testnet)
+            // 2. wait for the chain collector to put Merkle root (in network Q)
             while (true)
             {
                 if (nodeQ.GetAddressData(chainCollectorQ.Address).ContainsKey(key))
@@ -83,20 +82,14 @@ namespace wavesbridgetokentransfer
                 Thread.Sleep(10000);
             }
             
-            // 3. genegare MerkleProof (for transaction in stagenet)
+            // 3. genegate MerkleProof (for transaction in network P)
             var merkleProof = nodeP.GetMerkleProof(txId);
+            Console.WriteLine($"Merkle proof: {merkleProof.ToBase58()}");
 
-            Console.WriteLine("Merkle proof: ");
-            foreach(var p in merkleProof)
-                Console.WriteLine($"\t{p.ToBase58()}");
-
-            var index = nodeP.GetMerkleIndex(txId);
-            var proof = GenerateMerkleProof(index, merkleProof);
-
-            // 4. invoke script of tokenPort (in testnet) --> Bob receives money
+            // 4. invoke script of tokenPort (in network Q) --> Bob receives money
             var caller = BobQ;
             var invokeScriptTx = new InvokeScriptTransaction(nodeQ.ChainId, caller.PublicKey, tokenPortQ.Address, "withdraw",
-                new List<object> { txBytes, (long)blockHeight, proof }, null, 0.005m, Assets.WAVES);
+                new List<object> { txBytes, (long)blockHeight, merkleProof }, null, 0.005m, Assets.WAVES);
             invokeScriptTx.Sign(caller);
             Console.WriteLine(invokeScriptTx.GetJsonWithSignature().ToJson());
             
@@ -112,28 +105,6 @@ namespace wavesbridgetokentransfer
             nodeQ.Transfer(faucetQ, tokenPortQ.Address, Assets.WAVES, amount);
             nodeQ.Transfer(faucetQ, chainCollectorQ.Address, Assets.WAVES, amount);
             nodeQ.Transfer(faucetQ, BobQ.Address, Assets.WAVES, amount);
-        }
-
-        public static byte[] GenerateMerkleProof(long index, List<byte[]> proofs)
-        {
-            var stream = new MemoryStream();
-            var writer = new BinaryWriter(stream);
-
-            for (var i = 0; i < proofs.Count; i++)
-            {
-                const byte LeftSide = 0;
-                const byte RightSide = 1;
-                var side = (index % 2 == 1) ? LeftSide : RightSide;
-                var len = (byte)proofs[i].Length;
-
-                writer.Write(side);
-                writer.Write(len);
-                writer.Write(proofs[i]);
-
-                index /= 2;
-            }
-
-            return stream.ToArray();
         }
 
         public static void SetTokenPorts()
@@ -200,22 +171,39 @@ namespace wavesbridgetokentransfer
             return node.GetObject($"blocks/headers/at/{height}").GetString("transactionsRoot").FromBase58();
         }
 
-        public static List<byte[]> GetMerkleProof(this Node node, string txId)
+        private static byte[] GenerateMerkleProof(long index, List<byte[]> proofs)
         {
-            var response = node.GetObjects($"transactions/merkleProof?id={txId}")
-                               .First()
-                               .GetValue("merkleProof");
+            var stream = new MemoryStream();
+            var writer = new BinaryWriter(stream);
 
-            var proof = (Newtonsoft.Json.Linq.JArray)response;
+            for (var i = 0; i < proofs.Count; i++)
+            {
+                const byte LeftSide = 0;
+                const byte RightSide = 1;
+                var side = (index % 2 == 0) ? LeftSide : RightSide;
+                var len = (byte)proofs[i].Length;
 
-            return proof.Select(x => x.ToString().FromBase64()).ToList();
+                writer.Write(side);
+                writer.Write(len);
+                writer.Write(proofs[i]);
+
+                index /= 2;
+            }
+
+            return stream.ToArray();
         }
 
-        public static long GetMerkleIndex(this Node node, string txId)
+        public static byte[] GetMerkleProof(this Node node, string txId)
         {
-            return node.GetObjects($"transactions/merkleProof?id={txId}")
-                       .First()
-                       .GetLong("transactionIndex");
+            var response = node.GetObjects($"transactions/merkleProof?id={txId}")
+                               .First();
+
+            var txIndex = response.GetLong("transactionIndex");
+
+            var arr = (Newtonsoft.Json.Linq.JArray)response.GetValue("merkleProof");
+            var proofArray = arr.Select(x => x.ToString().FromBase64()).ToList();
+
+            return GenerateMerkleProof(txIndex, proofArray);
         }
     }
 }
