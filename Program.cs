@@ -16,77 +16,113 @@ namespace wavesbridgetokentransfer
 {
     class MainClass
     {
-        public static string chainCollectorTestnet = "3N6VvqXLuZ4uxWG6E92orif1KR61bqF6JCk";
-        public static string tokenPortTestnet = "3Mz3XPi4hQnfVK9ZaA27YwFfiPApPgFnCts";
-        public static string tokenPortStagenet = "3Mgqt4HLefP3bafouR4gXPrP9EgU4pajTct";
+        public static string chainCollectorPSeed = "take purity craft away cake month layer napkin theme slam explain seed take purity craft";
+        public static string chainCollectorQSeed = "void entire theme slam explain seed take purity craft away cake month layer napkin nasty";
+        public static string tokenPortPSeed = "theme slam explain seed take purity craft away cake month layer napkin nasty void entire";
+        public static string tokenPortQSeed = "seed take purity craft away cake month layer napkin nasty void entire theme slam explain";
+        public static string AlicePSeed = "whip disagree egg melt satisfy repeat engine envelope federal toward shoulder cattle rare much lava";
+        public static string BobQSeed = "whip disagree egg satisfy repeat engine envelope federal toward shoulder cattle rare much lava melt";
+        
+        public static PrivateKeyAccount chainCollectorP = PrivateKeyAccount.CreateFromSeed(chainCollectorPSeed, 'P');
+        public static PrivateKeyAccount chainCollectorQ = PrivateKeyAccount.CreateFromSeed(chainCollectorQSeed, 'Q');
+        public static PrivateKeyAccount tokenPortP = PrivateKeyAccount.CreateFromSeed(tokenPortPSeed, 'P');
+        public static PrivateKeyAccount tokenPortQ = PrivateKeyAccount.CreateFromSeed(tokenPortQSeed, 'Q');
+        public static PrivateKeyAccount AliceP = PrivateKeyAccount.CreateFromSeed(AlicePSeed, 'P');
+        public static PrivateKeyAccount BobQ = PrivateKeyAccount.CreateFromSeed(BobQSeed, 'Q');
+        public static PrivateKeyAccount faucetP = PrivateKeyAccount.CreateFromSeed("seed", 'P');
+        public static PrivateKeyAccount faucetQ = PrivateKeyAccount.CreateFromSeed("seed", 'Q');
+
+        public static Node nodeP;
+        public static Node nodeQ;
+
+        public static void Init()
+        {
+            chainCollectorP = PrivateKeyAccount.CreateFromSeed(chainCollectorPSeed, 'P');
+            chainCollectorQ = PrivateKeyAccount.CreateFromSeed(chainCollectorQSeed, 'Q');
+            tokenPortP = PrivateKeyAccount.CreateFromSeed(tokenPortPSeed, 'P');
+            tokenPortQ = PrivateKeyAccount.CreateFromSeed(tokenPortQSeed, 'Q');
+            AliceP = PrivateKeyAccount.CreateFromSeed(AlicePSeed, 'P');
+            BobQ = PrivateKeyAccount.CreateFromSeed(BobQSeed, 'Q');
+            faucetP = PrivateKeyAccount.CreateFromSeed("seed", 'P');
+            faucetQ = PrivateKeyAccount.CreateFromSeed("seed", 'Q');
+
+            nodeP = new Node("http://127.0.0.1:6870", 'P');
+            nodeQ = new Node("http://127.0.0.1:6869", 'Q');
+        }
 
         public static void Main(string[] args)
         {
-            // transfer tokens from stagenet to testnet
+            Init();
 
-            var testnetNode = new Node(Node.TestNetChainId);
-            var stagenetNode = new Node("https://stagenet-aws-fr-1.wavesnodes.com/", 'S');
-
-            var aliceSeed = "whip disagree egg melt satisfy repeat engine envelope federal toward shoulder cattle rare much lava";
-            var Alice = PrivateKeyAccount.CreateFromSeed(aliceSeed, stagenetNode.ChainId); // in stagenet
-            var Bob = "3MuR872m3WiW1DRBD8CfoLbZpJgo3xzLyy7"; // in testnet
+            // transfer tokens from network "P" to network "Q"
 
             // 0. Set token port script and data
-            // SetTokenPortTestNet();
-            // return;
+            // SetTokenPorts(); return;
 
             // 1. transfer tokens from Alice to TokenPort (in stagenet)
-            
-            /*var response = stagenetNode.Transfer(Alice, tokenPortStagenet, Assets.WAVES, 0.00000002m, 0.005m, null, Bob.FromBase58());
+
+            /*var response = nodeP.Transfer(AliceP, tokenPortP.Address, Assets.WAVES, 0.00000002m, 0.005m, null, BobQ.Address.FromBase58());
             Thread.Sleep(10000);
             var txId = response.ParseJsonObject().GetString("id");
             */
 
-            var txId = "5g3zao9BPs8U1t5S1AwcHMEzeU6BR8HCqD5v6mYvuZoY";
+            var txId = "HwgHpwKPeNRG2frrR4UTWfmhxRpGb5aLiRaL5KvurwbH";
+
             Console.WriteLine($"transfer tx id: {txId}");
 
-            var blockHeight = stagenetNode.GetTransactionHeight(txId);
-            var txBytes = GetTransactionProtobufBytes("stagenet-aws-fr-1.wavesnodes.com:6870", txId);
+            var blockHeight = nodeP.GetTransactionHeight(txId);
+            var txBytes = GetTransactionProtobufBytes("0.0.0.0:6890", txId);
 
             var key = blockHeight.ToString() + "_transactionsRoot";
 
             // 2. wait for the chain collector to put Merkle root (in testnet)
             while (true)
             {
-                if (testnetNode.GetAddressData(chainCollectorTestnet).ContainsKey(key))
+                if (nodeQ.GetAddressData(chainCollectorQ.Address).ContainsKey(key))
                     break;
                 Thread.Sleep(10000);
             }
-
+            
             // 3. genegare MerkleProof (for transaction in stagenet)
-            var merkleProof = stagenetNode.GetMerkleProof(txId);
-            Console.WriteLine("Merkle proof: ");
+            var merkleProof = nodeP.GetMerkleProof(txId);
 
+            Console.WriteLine("Merkle proof: ");
             foreach(var p in merkleProof)
                 Console.WriteLine($"\t{p.ToBase58()}");
-            
-            // 4. invoke script of tokenPort (in testnet) --> Bob receives money
-            var callerSeed = "whip disagree egg satisfy repeat engine envelope federal toward shoulder cattle rare much lava melt";
-            var caller = PrivateKeyAccount.CreateFromSeed(callerSeed, testnetNode.ChainId);
 
-            var invokeScriptTx = new InvokeScriptTransaction(testnetNode.ChainId, caller.PublicKey, tokenPortTestnet, "withdraw",
-                new List<object> { txBytes, (long)blockHeight, merkleProof }, null, 0.005m, Assets.WAVES);
+            var index = nodeP.GetMerkleIndex(txId);
+            var proof = GenerateMerkleProof(index, merkleProof);
+
+            // 4. invoke script of tokenPort (in testnet) --> Bob receives money
+            var caller = BobQ;
+            var invokeScriptTx = new InvokeScriptTransaction(nodeQ.ChainId, caller.PublicKey, tokenPortQ.Address, "withdraw",
+                new List<object> { txBytes, (long)blockHeight, proof }, null, 0.005m, Assets.WAVES);
             invokeScriptTx.Sign(caller);
             Console.WriteLine(invokeScriptTx.GetJsonWithSignature().ToJson());
-
+            
             // testnetNode.Broadcast(invokeScriptTx);
         }
 
-        const byte LeftSide = 0;
-        const byte RightSide = 1;
+        public static void GetTokensFromFaucet(decimal amount = 1000m)
+        {
+            nodeP.Transfer(faucetP, tokenPortP.Address, Assets.WAVES, amount);
+            nodeP.Transfer(faucetP, chainCollectorP.Address, Assets.WAVES, amount);
+            nodeP.Transfer(faucetP, AliceP.Address, Assets.WAVES, amount);
 
-        public static byte[] GenerateMerkleProof(int index, List<byte[]> proofs)
+            nodeQ.Transfer(faucetQ, tokenPortQ.Address, Assets.WAVES, amount);
+            nodeQ.Transfer(faucetQ, chainCollectorQ.Address, Assets.WAVES, amount);
+            nodeQ.Transfer(faucetQ, BobQ.Address, Assets.WAVES, amount);
+        }
+
+        public static byte[] GenerateMerkleProof(long index, List<byte[]> proofs)
         {
             var stream = new MemoryStream();
             var writer = new BinaryWriter(stream);
 
             for (var i = 0; i < proofs.Count; i++)
             {
+                const byte LeftSide = 0;
+                const byte RightSide = 1;
                 var side = (index % 2 == 1) ? LeftSide : RightSide;
                 var len = (byte)proofs[i].Length;
 
@@ -100,30 +136,32 @@ namespace wavesbridgetokentransfer
             return stream.ToArray();
         }
 
-        public static void SetTokenPortTestNet()
+        public static void SetTokenPorts()
         {
-            var node = new Node(Node.TestNetChainId);
-            var chainId = 'T';
-            var tokenPortSeed = "seed take purity craft away cake month layer napkin nasty void entire theme slam explain";
-            var tokenPort = PrivateKeyAccount.CreateFromSeed(tokenPortSeed, chainId);
-
-            node.PutData(tokenPort, new Dictionary<string, object>
+            nodeP.PutData(tokenPortP, new Dictionary<string, object>
             {
-                { "tokenPortInOtherChain", tokenPortStagenet.FromBase58() },
-                { "chainCollector", chainCollectorTestnet.FromBase58()},
+                { "tokenPortInOtherChain", tokenPortQ.Address.FromBase58() },
+                { "chainCollector", chainCollectorP.Address.FromBase58()},
                 { "WAVES_asset", "WAVES"}
             }, 0.01m);
 
-            var tokenPortScript = "";
+            nodeQ.PutData(tokenPortQ, new Dictionary<string, object>
+            {
+                { "tokenPortInOtherChain", tokenPortP.Address.FromBase58() },
+                { "chainCollector", chainCollectorQ.Address.FromBase58()},
+                { "WAVES_asset", "WAVES"}
+            }, 0.01m);
+
             var assembly = Assembly.GetExecutingAssembly();
             using (var stream = assembly.GetManifestResourceStream("wavesbridgetokentransfer.Resources.TokenPort.ride"))
             using (var reader = new StreamReader(stream))
             {
-                tokenPortScript = reader.ReadToEnd();
-            }
+                var tokenPortScript = reader.ReadToEnd();
+                var compiledScript = nodeP.CompileCode(tokenPortScript);
 
-            var compiledScript = node.CompileCode(tokenPortScript);
-            node.SetScript(tokenPort, compiledScript);
+                nodeP.SetScript(tokenPortP, compiledScript);
+                nodeQ.SetScript(tokenPortQ, compiledScript);
+            }
         }
 
         public static byte[] GetTransactionProtobufBytes(string target, string id)
@@ -141,7 +179,12 @@ namespace wavesbridgetokentransfer
             var task = Task.Run(async () => { await t.ResponseStream.MoveNext(); });
             task.Wait();
 
-            return t.ResponseStream.Current.ToByteArray();
+
+            return t.ResponseStream.Current
+                .ToByteArray()
+                .Skip(34)
+                .SkipWhile(x => x != 10)
+                .ToArray();
         }
     }
 
@@ -166,6 +209,13 @@ namespace wavesbridgetokentransfer
             var proof = (Newtonsoft.Json.Linq.JArray)response;
 
             return proof.Select(x => x.ToString().FromBase64()).ToList();
+        }
+
+        public static long GetMerkleIndex(this Node node, string txId)
+        {
+            return node.GetObjects($"transactions/merkleProof?id={txId}")
+                       .First()
+                       .GetLong("transactionIndex");
         }
     }
 }
