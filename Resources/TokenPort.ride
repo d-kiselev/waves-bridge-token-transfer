@@ -43,8 +43,9 @@ func withdraw(txBytes: ByteVector, blockHeight: Int, merkleProof: ByteVector) = 
         case _ => throw("incorrect asset")
     }
 
-    if (transferTx.recipient.addressFromRecipient().bytes != tokenPortInOtherChain)
-    then throw("incorrect tx recipient") else
+    let actualRecipient = transferTx.recipient.addressFromRecipient().bytes
+    if (actualRecipient != tokenPortInOtherChain)
+    then throw("incorrect tx recipient, expected " + tokenPortInOtherChain.toBase58String() + " but " + actualRecipient.toBase58String() + " found") else
 
     # prohibit double spending
     let txIdKey = transferTx.id.toBase58String() + "_tx"
